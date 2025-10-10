@@ -5,14 +5,14 @@
 
 # Получение существующего сервисного аккаунта
 data "yandex_iam_service_account" "terraform_sa" {
-  service_account_id = "ajernuoljgj9gjgvhn28"  # ID из bootstrap
+  service_account_id = "ajernuoljgj9gjgvhn28" # ID из bootstrap
 }
 
 # Создание Container Registry
 resource "yandex_container_registry" "app_registry" {
   name      = "diplom-registry"
   folder_id = "b1grekf05a830gqkk35s"
-  
+
   labels = {
     project     = "diplom"
     environment = "production"
@@ -23,9 +23,9 @@ resource "yandex_container_registry" "app_registry" {
 resource "yandex_container_registry_iam_binding" "puller" {
   registry_id = yandex_container_registry.app_registry.id
   role        = "container-registry.images.puller"
-  
+
   members = [
-    "system:allUsers",  # Все пользователи могут скачивать образы
+    "system:allUsers", # Все пользователи могут скачивать образы
   ]
 }
 
@@ -33,7 +33,7 @@ resource "yandex_container_registry_iam_binding" "puller" {
 resource "yandex_container_registry_iam_binding" "pusher" {
   registry_id = yandex_container_registry.app_registry.id
   role        = "container-registry.images.pusher"
-  
+
   members = [
     "serviceAccount:${data.yandex_iam_service_account.terraform_sa.id}",
   ]

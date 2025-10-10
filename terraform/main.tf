@@ -15,21 +15,21 @@ terraform {
     bucket = "terraform-state-ajernuoljgj9gjgvhn28"
     region = "ru-central1"
     key    = "terraform.tfstate"
-    
+
     skip_region_validation      = true
     skip_credentials_validation = true
     skip_requesting_account_id  = true
     skip_metadata_api_check     = true
     skip_s3_checksum            = true
-    
+
   }
 }
 
 provider "yandex" {
   service_account_key_file = "./key.json"
-  cloud_id  = "b1ggid9nl12161umo6r8"
-  folder_id = "b1grekf05a830gqkk35s"
-  zone      = "ru-central1-a"
+  cloud_id                 = "b1ggid9nl12161umo6r8"
+  folder_id                = "b1grekf05a830gqkk35s"
+  zone                     = "ru-central1-a"
 }
 
 # Создание VPC сети
@@ -110,7 +110,7 @@ resource "yandex_compute_instance" "nat_instance" {
   resources {
     cores         = 2
     memory        = 2
-    core_fraction = 20  # Минимальная доля CPU для экономии
+    core_fraction = 20 # Минимальная доля CPU для экономии
   }
 
   boot_disk {
@@ -118,14 +118,14 @@ resource "yandex_compute_instance" "nat_instance" {
       # Образ NAT-инстанса от Yandex Cloud
       image_id = "fd80mrhj8fl2oe87o4e1"
       size     = 10
-      type     = "network-hdd"  # Самый дешевый тип диска
+      type     = "network-hdd" # Самый дешевый тип диска
     }
   }
 
   network_interface {
-    subnet_id      = yandex_vpc_subnet.public_a.id
-    nat            = true
-    ip_address     = "192.168.10.254"
+    subnet_id  = yandex_vpc_subnet.public_a.id
+    nat        = true
+    ip_address = "192.168.10.254"
   }
 
   metadata = {
@@ -135,8 +135,8 @@ resource "yandex_compute_instance" "nat_instance" {
 
 # Таблица маршрутизации для приватных подсетей
 resource "yandex_vpc_route_table" "private" {
-  name       = "private-route-table"
-  network_id = yandex_vpc_network.main.id
+  name        = "private-route-table"
+  network_id  = yandex_vpc_network.main.id
   description = "Маршрутизация трафика из приватных подсетей через NAT"
 
   static_route {
