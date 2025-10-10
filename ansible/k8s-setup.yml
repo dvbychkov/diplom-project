@@ -1,0 +1,233 @@
+---
+
+- name: Подготовка всех нод (master + workers)
+  hosts: k8s_cluster
+  become: yes
+  tasks:
+    # Обновление системы
+    - name: Обновление apt кеша
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    # Установка необходимых пакетов
+    - name: Установка базовых пакетов
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+        state: present
+
+    # Отключение swap
+    - name: Отключение swap
+      shell: |
+        swapoff -a
+        sed -i '/swap/d' /etc/fstab
+
+    # Загрузка модулей ядра
+    - name: Загрузка модулей для containerd
+      copy:
+        dest: /etc/modules-load.d/containerd.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: Применение модулей
+      shell: |
+        modprobe overlay
+        modprobe br_netfilter
+
+    # Настройка сети для Kubernetes
+    - name: Настройка sysctl для Kubernetes
+      copy:
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.ipv4.ip_forward                 = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+
+    - name: Применение sysctl настроек
+      shell: sysctl --system
+
+    # Установка containerd
+    - name: Добавление Docker GPG ключа
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Добавление Docker репозитория
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Установка containerd
+      apt:
+        name: containerd.io
+        state: present
+        update_cache: yes
+
+    # Настройка containerd
+    - name: Создание директории для конфигурации containerd
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Генерация конфигурации containerd
+      shell: containerd config default > /etc/containerd/config.toml
+
+    - name: Настройка SystemdCgroup в containerd
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^\s*SystemdCgroup\s*='
+        line: '            SystemdCgroup = true'
+        state: present
+
+    - name: Перезапуск containerd
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+
+    # Установка Kubernetes компонентов
+    - name: Создание директории для keyring
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Добавление Kubernetes GPG ключа
+      shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Добавление Kubernetes репозитория
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+        state: present
+        filename: kubernetes
+
+    - name: Установка kubelet, kubeadm, kubectl
+      apt:
+        name:
+          - kubelet=1.28.*
+          - kubeadm=1.28.*
+          - kubectl=1.28.*
+        state: present
+        update_cache: yes
+
+    - name: Фиксация версий пакетов Kubernetes
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+- name: Инициализация Master ноды
+  hosts: k8s_master
+  become: yes
+  tasks:
+    # Инициализация кластера
+    - name: Проверка инициализации кластера
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+
+    - name: Инициализация Kubernetes кластера
+      shell: |
+        kubeadm init \
+          --pod-network-cidr=10.244.0.0/16 \
+          --apiserver-advertise-address={{ ansible_default_ipv4.address }} \
+          --control-plane-endpoint={{ ansible_default_ipv4.address }}
+      when: not kubeadm_init.stat.exists
+      register: kubeadm_output
+
+    # Сохранение команды для join worker нод
+    - name: Получение команды join для worker nodes
+      shell: kubeadm token create --print-join-command
+      register: join_command
+      when: not kubeadm_init.stat.exists or kubeadm_output.changed
+
+    - name: Сохранение join команды
+      set_fact:
+        kubeadm_join_command: "{{ join_command.stdout }}"
+      when: join_command.stdout is defined
+
+    # Настройка kubectl для пользователя
+    - name: Создание .kube директории для пользователя kurs
+      file:
+        path: /home/kurs/.kube
+        state: directory
+        owner: kurs
+        group: kurs
+        mode: '0755'
+
+    - name: Копирование admin.conf
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/kurs/.kube/config
+        remote_src: yes
+        owner: kurs
+        group: kurs
+        mode: '0600'
+
+    # Установка сетевого плагина (Flannel)
+    - name: Установка Flannel CNI
+      become_user: kurs
+      shell: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      when: not kubeadm_init.stat.exists
+
+    # Копирование kubeconfig на локальную машину
+    - name: Получение kubeconfig файла
+      fetch:
+        src: /home/kurs/.kube/config
+        dest: ./kubeconfig
+        flat: yes
+
+- name: Присоединение Worker нод
+  hosts: k8s_workers
+  become: yes
+  tasks:
+    - name: Проверка присоединения к кластеру
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Получение join команды с master ноды
+      shell: kubeadm token create --print-join-command
+      delegate_to: "{{ groups['k8s_master'][0] }}"
+      register: join_command_workers
+      when: not kubelet_conf.stat.exists
+
+    - name: Присоединение к кластеру
+      shell: "{{ join_command_workers.stdout }}"
+      when: not kubelet_conf.stat.exists and join_command_workers.stdout is defined
+
+- name: Проверка статуса кластера
+  hosts: k8s_master
+  become_user: kurs
+  tasks:
+    - name: Ожидание готовности всех нод
+      shell: kubectl get nodes
+      register: nodes_status
+      until: nodes_status.stdout.find("NotReady") == -1
+      retries: 20
+      delay: 30
+
+    - name: Вывод статуса кластера
+      debug:
+        var: nodes_status.stdout_lines
+
+    - name: Проверка pods в kube-system
+      shell: kubectl get pods -n kube-system
+      register: system_pods
+
+    - name: Вывод системных pods
+      debug:
+        var: system_pods.stdout_lines

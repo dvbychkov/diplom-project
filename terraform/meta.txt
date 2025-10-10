@@ -1,0 +1,9 @@
+#cloud-config
+users:
+ - name: kurs
+   groups: sudo
+   shell: /bin/bash
+   sudo: ['ALL=(ALL) NOPASSWD:ALL']
+   ssh-authorized-keys:
+     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCoAWh/75GqhAs1asGIBCCfIQc78Nhf045/4fGPDFG1Li07B9ez/0b/P6q4c/q0zLwBtPJYFEeqYm9q/AJcP7Z342FvRxV2Wc0IPbTM/gKwx7UnB2jnXHYNlC1cjiVvk8UQON7NtR0LIL2ujAwr34hZisOxV3eUcFigpNeRuxMz073pwAD5cQrviGyl5myUQlA7pZl7rSsc+ZAQd26+XiP3I7HqUdT050TolJba/X/PvDn4adPzam8qJNrUj45Cc51WLR4PZmau11s89EEVPSsgerQ6ASG1TwAODUVXe6LBdEMgp3TkTQo3lk7ULklyl0JxPhc93JmQY1+NouIPHz5Ye7fnfMjwm7bEgbB8RJKLROIi4xBCOAVXRas0FDzHWgjDAdOss+CAJRCe2C992CklJal5AslJPjb79VET6ZxiEdBGooXn3nvUJ/QvrG9znhWH8Bk51QseRwlXnTP7qp0vm3AyWqEhKNeopmghic/8kzMD5o7ZW0Ygm/dEFOZQ1vOqJbuA9S5/Qvw+g1pmDKZAdKJkhtuAYjhR8DYyyU3tCgwzrDJ/nrT9gNNGwqsm+YU1i5M0z04iQpu4ngb/gwVf6e7ZNL3t4NqPmOlU8RKjBYwVbA0X9uabB5DxEMPtkhZ3NL+uFp/3qoA1304TXpUV5+AzBZW3UkQMUKrEpv0DtQ== dvbychkov@gmail.com
+

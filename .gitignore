@@ -1,0 +1,37 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+tfplan
+override.tf
+override.tf.json
+
+# SSH/Keys
+*.pem
+*.key
+key.json
+id_rsa
+id_rsa.pub
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+
+# kubeconfig
+kubeconfig
+.kubeconfig

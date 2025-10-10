@@ -1,0 +1,115 @@
+# ============================================
+# Конфигурация для kube-prometheus-stack
+# ============================================
+
+# ============================================
+# Grafana настройки
+# ============================================
+grafana:
+  # Включение Grafana (уже включено по умолчанию)
+  enabled: true
+  
+  # Пароль администратора
+  adminPassword: "admin123"  # ВАЖНО: Измените в продакшене!
+  
+  # Тип сервиса для доступа извне кластера
+  service:
+    type: NodePort         # Выделить порт на ноде
+    nodePort: 30080        # Порт доступа (30000-32767)
+  
+  # Отключение персистентного хранилища (для экономии)
+  persistence:
+    enabled: false
+  
+  # Включение встроенных дашбордов
+  defaultDashboardsEnabled: true
+  
+  # Ограничение ресурсов Grafana
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================
+# Prometheus настройки
+# ============================================
+prometheus:
+  enabled: true
+  
+  prometheusSpec:
+    # Автоматическое обнаружение ServiceMonitor
+    # Позволяет автоматически добавлять цели мониторинга
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    
+    # Период хранения метрик (7 дней)
+    retention: 7d
+    
+    # Ограничение ресурсов для Prometheus
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 512Mi
+    
+    # Отключение хранилища (использует память)
+    # В продакшене используйте PersistentVolume
+    storageSpec: {}
+
+  # Тип сервиса для доступа к Prometheus
+  service:
+    type: NodePort
+    nodePort: 30090
+
+# ============================================
+# Alertmanager настройки
+# ============================================
+alertmanager:
+  enabled: true
+  
+  alertmanagerSpec:
+    # Ограничение ресурсов
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    
+    # Отключение хранилища конфигурации
+    storage: {}
+  
+  # Тип сервиса
+  service:
+    type: NodePort
+    nodePort: 30093
+
+# ============================================
+# Node Exporter - метрики нод
+# ============================================
+nodeExporter:
+  enabled: true
+
+# ============================================
+# Kube State Metrics - метрики K8s объектов
+# ============================================
+kubeStateMetrics:
+  enabled: true
+
+# ============================================
+# Prometheus Operator - управление компонентами
+# ============================================
+prometheusOperator:
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
