@@ -1,43 +1,209 @@
+# ============================================
+# Terraform Pipeline - GitHub Actions Workflow
+# Автоматизирует планирование и применение Terraform конфигураций
+# ============================================
+
 name: Terraform Pipeline
 
+# Триггеры для запуска workflow
 on:
+  # Запуск при push в main ветку
   push:
     branches:
       - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-pipeline.yml'
+  
+  # Запуск при pull request
   pull_request:
     branches:
       - main
+    paths:
+      - 'terraform/**'
+  
+  # Возможность запуска вручную из GitHub UI
   workflow_dispatch:
 
+# Переменные для всех jobs
 env:
+  TERRAFORM_VERSION: "1.9.0"
   TF_INPUT: false
   TF_IN_AUTOMATION: true
 
 jobs:
-  terraform:
-    name: Terraform
+  # ============================================
+  # Job 1: Проверка Terraform кода
+  # ============================================
+  terraform-validate:
+    name: Validate Terraform
     runs-on: ubuntu-latest
+    
+    steps:
+      # Клонирование репозитория
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Установка Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # Форматирование проверки
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive terraform/
+
+      # Инициализация Terraform (без backend для проверки)
+      - name: Terraform Init (Validation Only)
+        run: |
+          cd terraform
+          terraform init -backend=false
+
+      # Валидация синтаксиса
+      - name: Terraform Validate
+        run: |
+          cd terraform
+          terraform validate
+
+  # ============================================
+  # Job 2: Планирование Terraform (Plan)
+  # ============================================
+  terraform-plan:
+    name: Plan Terraform Changes
+    runs-on: ubuntu-latest
+    needs: terraform-validate
+    
+    # Переменные окружения для этого job
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.YANDEX_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.YANDEX_SECRET_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # Инициализация Terraform с backend (S3)
+      - name: Terraform Init
+        run: |
+          cd terraform
+          terraform init
+
+      # Создание плана изменений
+      - name: Terraform Plan
+        run: |
+          cd terraform
+          terraform plan -out=tfplan
+        continue-on-error: true
+
+      # Загрузка плана как артефакта для следующего job
+      - name: Upload tfplan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/tfplan
+
+  # ============================================
+  # Job 3: Применение Terraform (Apply)
+  # Только для push в main ветку (не для PR)
+  # ============================================
+  terraform-apply:
+    name: Apply Terraform Changes
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    
+    # Условие: запускается только для push в main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.YANDEX_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.YANDEX_SECRET_KEY }}
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Terraform Init
-        run: cd terraform && terraform init
-        continue-on-error: true
+        run: |
+          cd terraform
+          terraform init
 
-      - name: Terraform Plan
-        run: cd terraform && terraform plan
-        continue-on-error: true
+      # Загрузка сохранённого плана
+      - name: Download tfplan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/
 
+      # Применение плана
       - name: Terraform Apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: cd terraform && terraform apply -auto-approve
+        run: |
+          cd terraform
+          terraform apply -auto-approve tfplan
+
+      # Вывод новых outputs
+      - name: Terraform Output
+        run: |
+          cd terraform
+          terraform output
+
+  # ============================================
+  # Job 4: Комментарий в PR с результатами
+  # ============================================
+  terraform-comment:
+    name: Comment PR with Terraform Plan
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    
+    # Условие: только для PR
+    if: github.event_name == 'pull_request'
+    
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.YANDEX_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.YANDEX_SECRET_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          cd terraform
+          terraform init
+
+      - name: Terraform Plan for Comment
+        run: |
+          cd terraform
+          terraform plan -no-color > /tmp/tfplan.txt
         continue-on-error: true
+
+      # Комментарий в PR с результатами плана
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/tfplan.txt', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan\n\n\`\`\`\n${plan}\n\`\`\``
+            });
