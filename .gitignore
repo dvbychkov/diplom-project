@@ -35,3 +35,6 @@ __pycache__/
 # kubeconfig
 kubeconfig
 .kubeconfig
+key.json
+*.key
+*.pem
