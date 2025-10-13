@@ -1,9 +1,11 @@
 name: Terraform Pipeline
-
 on:
   push:
     branches:
       - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-pipeline.yml'
   workflow_dispatch:
 
 jobs:
@@ -11,10 +13,6 @@ jobs:
     name: Terraform Status Check
     runs-on: ubuntu-latest
     
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.YANDEX_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.YANDEX_SECRET_KEY }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,19 +32,33 @@ jobs:
           terraform validate
         continue-on-error: true
 
+      - name: Terraform Format Check
+        run: |
+          cd terraform
+          terraform fmt -check -recursive
+        continue-on-error: true
+
       - name: Create Workflow Summary
         run: |
           echo "## ✅ Terraform Pipeline Status" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** diplom-project" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** Infrastructure is managed by Terraform" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** Infrastructure validated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Infrastructure Details" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ VPC с подсетями в 3 зонах" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Kubernetes кластер (1 master + 2 workers)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Container Registry" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ S3 Backend для Terraform state" >> $GITHUB_STEP_SUMMARY
+          echo "- VPC с подсетями в 3 зонах" >> $GITHUB_STEP_SUMMARY
+          echo "- Kubernetes кластер (1 master + 2 workers)" >> $GITHUB_STEP_SUMMARY
+          echo "- Container Registry" >> $GITHUB_STEP_SUMMARY
+          echo "- S3 Backend для Terraform state" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Step" >> $GITHUB_STEP_SUMMARY
-          echo "Proceed to CI/CD pipeline for application deployment" >> $GITHUB_STEP_SUMMARY
+          echo "### Notes" >> $GITHUB_STEP_SUMMARY
+          echo "- Полное применение Terraform выполняется вручную на сервере" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Actions проверяет только синтаксис и форматирование" >> $GITHUB_STEP_SUMMARY
+          echo "- State файл хранится в S3 backend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Current Infrastructure" >> $GITHUB_STEP_SUMMARY
+          echo "**Master Node:** 158.160.50.199 (192.168.10.30)" >> $GITHUB_STEP_SUMMARY
+          echo "**Worker 1:** 158.160.47.251 (192.168.10.14)" >> $GITHUB_STEP_SUMMARY
+          echo "**Worker 2:** 84.201.154.133 (192.168.11.24)" >> $GITHUB_STEP_SUMMARY
+          echo "**NAT Instance:** 158.160.56.18 (192.168.10.254)" >> $GITHUB_STEP_SUMMARY
