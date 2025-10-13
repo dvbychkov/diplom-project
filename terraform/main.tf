@@ -26,7 +26,7 @@ terraform {
 }
 
 provider "yandex" {
-  service_account_key_file = "./key.json"
+  service_account_key_file = fileexists("./key.json") ? "./key.json" : null
   cloud_id                 = "b1ggid9nl12161umo6r8"
   folder_id                = "b1grekf05a830gqkk35s"
   zone                     = "ru-central1-a"
