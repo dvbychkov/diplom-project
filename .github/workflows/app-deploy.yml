@@ -1,5 +1,4 @@
 name: Build and Deploy Application
-
 on:
   push:
     branches:
@@ -20,9 +19,6 @@ jobs:
     name: Build Docker Image
     runs-on: ubuntu-latest
     
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,38 +27,40 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: json_key
-          password: ${{ secrets.YANDEX_KEY_JSON }}
+        run: |
+          echo '${{ secrets.YANDEX_KEY_JSON }}' | base64 -d > /tmp/key.json
+          cat /tmp/key.json | docker login --username json_key --password-stdin ${{ env.REGISTRY }}
+          rm /tmp/key.json
 
       - name: Extract metadata
         id: meta
         run: |
-          echo "version=v1.0.$(date +%s)" >> $GITHUB_OUTPUT
-          echo "tags=${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:v1.0.$(date +%s)" >> $GITHUB_OUTPUT
+          TIMESTAMP=$(date +%s)
+          VERSION="v1.0.${TIMESTAMP}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tags=${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./test-app
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build Docker image
+        run: |
+          cd test-app
+          docker build -t ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest .
+          docker tag ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest \
+                     ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
 
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+      - name: Push Docker image to Registry
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+
+      - name: Logout from Container Registry
+        if: always()
+        run: docker logout ${{ env.REGISTRY }}
 
   deploy:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push'
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -81,12 +79,18 @@ jobs:
           kubectl create namespace ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
         continue-on-error: true
 
-      - name: Update deployment
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f test-app/k8s/namespace.yaml
+          kubectl apply -f test-app/k8s/deployment.yaml
+          kubectl apply -f test-app/k8s/service.yaml
+        continue-on-error: true
+
+      - name: Update deployment image
         run: |
           kubectl set image deployment/nginx-app \
             nginx=${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest \
-            -n ${{ env.K8S_NAMESPACE }} || \
-          kubectl apply -f test-app/k8s/ -n ${{ env.K8S_NAMESPACE }}
+            -n ${{ env.K8S_NAMESPACE }}
         continue-on-error: true
 
       - name: Wait for rollout
@@ -100,9 +104,11 @@ jobs:
         run: |
           echo "## Deployment Status" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          kubectl get deployment,pods,svc -n ${{ env.K8S_NAMESPACE }} >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
+          kubectl get deployment -n ${{ env.K8S_NAMESPACE }} >> $GITHUB_STEP_SUMMARY || echo "No deployments found"
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "Registry: ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "Image: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "Tag: latest" >> $GITHUB_STEP_SUMMARY
+          echo "### Pods" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }} >> $GITHUB_STEP_SUMMARY || echo "No pods found"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services" >> $GITHUB_STEP_SUMMARY
+          kubectl get svc -n ${{ env.K8S_NAMESPACE }} >> $GITHUB_STEP_SUMMARY || echo "No services found"
